@@ -114,6 +114,8 @@ with st.sidebar:
         ["Linear Regression", "LSTM", "GRU", "SimpleRNN"],
         default=["Linear Regression", "LSTM", "GRU"]
     )
+    if len(selected_models) > 3:
+        st.warning("Please select Max. 3 models! for Comparison.")
     
     # Training parameters
     st.subheader("Model Parameters")
@@ -140,6 +142,7 @@ data_load_state.success(f'✅ {stock_name} ({stock}) data loaded successfully!')
 # Display raw data
 with st.expander("🔍 View Raw Data", expanded=True):
     st.write(data)
+    st.write("Most likely a stock price respresents in USD (United States Dollars) — that's a common unit for stock prices.")
 
 # Prepare Data
 data_close = data[['Close']]
