@@ -688,15 +688,6 @@ if len(data_close) > 0 and len(selected_models) > 0:
             mime="text/csv"
     )
 
-
-        # Footer
-    st.markdown("---")
-    st.markdown("""
-        <div style="text-align: center; padding: 20px;">
-                <p>Developed with ❤️ using Streamlit, Keras, and Yahoo Finance</p>
-                <p>ℹ️ Note: Stock predictions are for educational purposes only</p>
-            </div>
-            """, unsafe_allow_html=True)
     # Footer
     st.markdown("---")
     st.markdown("""
