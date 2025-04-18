@@ -336,18 +336,29 @@ if len(data_close) > 0 and len(selected_models) > 0:
                 }
 
     # Plot Predictions
+    # Get the dates corresponding to the test set
+    test_dates = data.index[train_size:train_size + len(y_test_rescaled)]
+
     fig1 = plt.figure(figsize=(14, 7))
-    plt.plot(y_test_rescaled, color='blue', label='Actual Prices', linewidth=2)
+    plt.plot(test_dates, y_test_rescaled, color='blue', label='Actual Prices', linewidth=2)
 
     colors = ['#4b8df8', '#ff6b6b', '#51cf66', '#fcc419']
     for idx, (model_name, perf) in enumerate(model_performance.items()):
-        plt.plot(perf["Predictions"], color=colors[idx], label=f'{model_name} Predictions', linestyle='--')
+        plt.plot(test_dates, perf["Predictions"], color=colors[idx], 
+                label=f'{model_name} Predictions', linestyle='--')
 
     plt.title(f"{stock_name} Stock Price Prediction Comparison", fontsize=16)
-    plt.xlabel("Time", fontsize=14)
-    plt.ylabel("Price", fontsize=14)
+    plt.xlabel("Date", fontsize=14)  # Changed from "Time" to "Date"
+    plt.ylabel("Price (USD)", fontsize=14)
     plt.legend(fontsize=12)
     plt.grid(True, linestyle='--', alpha=0.7)
+
+    # Rotate x-axis labels for better readability
+    plt.xticks(rotation=45)
+
+    # Format x-axis to show dates nicely
+    fig1.autofmt_xdate()
+
     st.pyplot(fig1)
 
     # Future Prediction Section
