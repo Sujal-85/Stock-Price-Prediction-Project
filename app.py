@@ -149,7 +149,7 @@ with st.expander("🔍 View Raw Data", expanded=True):
 # Prepare Data
 data_close = data[['Close']]
 scaler = MinMaxScaler(feature_range=(0, 1))
-if len(data_close) > 0:
+if len(data_close) > 0 and len(selected_models) > 0:
     scaled_data = scaler.fit_transform(data_close)
 
     # Train-Test Split
@@ -234,42 +234,7 @@ if len(data_close) > 0:
         # Make Predictions and Evaluate
         y_test_rescaled = scaler.inverse_transform(y_test.reshape(-1, 1))
 
-        # Results Display
-        st.markdown("---")
-        st.markdown(f'<h2 class="stock-header">📉 {stock_name} ({stock}) Price Prediction Results</h2>', unsafe_allow_html=True)
-
-        # Create columns for model cards
-        cols = st.columns(len(models))
-
-        model_colors = {
-            "Linear Regression": "linear-reg-card",
-            "LSTM": "lstm-card",
-            "GRU": "gru-card",
-            "SimpleRNN": "rnn-card"
-        }
-
-        for idx, (model_name, model) in enumerate(models.items()):
-            with cols[idx]:
-                with st.container():
-                    card_class = model_colors.get(model_name, "model-card")
-                    st.markdown(f'<div class="model-card {card_class}">', unsafe_allow_html=True)
-                    
-                    # Make predictions
-                    if model_name == "Linear Regression":
-                        predictions = model.predict(x_test_linear)
-                    else:
-                        predictions = model.predict(x_test)
-                    
-                    predictions = predictions.reshape(-1, 1)
-                    predictions = scaler.inverse_transform(predictions)
-                    
-                    # Calculate metrics
-                    mse = mean_squared_error(y_test_rescaled, predictions)
-                    rmse = np.sqrt(mse)
-                    mae = mean_absolute_error(y_test_rescaled, predictions)
-                    mape = np.mean(np.abs((y_test_rescaled - predictions) / y_test_rescaled)) * 100
-                    r2 = r2_score(y_test_rescaled, predictions)
-                    accuracy = max(0, (1 - mape/100) * 100)  # Simple accuracy metric
+        
     # Make Predictions and Evaluate
     y_test_rescaled = scaler.inverse_transform(y_test.reshape(-1, 1))
 
@@ -676,38 +641,41 @@ if len(data_close) > 0:
 
                     }))
         data1 = {
-            "Avg Growth (%)": ["+6.5%", "+2.1%", "-4.3%"],
-            "Recommendation": ["BUY", "HOLD", "SELL"],
-            "Reasoning": [
-                "Strong potential for appreciation",
-                "Modest growth expected",
-                "Predicted loss over forecast period"
-            ]
-            }
+    "Recommendation": ["BUY", "HOLD", "SELL"],
+    "Avg Growth (%)": ["+6.5% or more", "+2.1% to +6.4%", "-4.3% or less"],
+    "Reasoning": [
+        "Strong potential for appreciation",
+        "Modest growth expected",
+        "Predicted loss over forecast period"
+    ]
+        }
 
         df = pd.DataFrame(data1)
-        st.markdown("### 💼 Interpretation Guide")
+
+        st.markdown("""
+        ### 💼 Interpretation Guide (Standard Thresholds)
+                    
+        **These are general recommendation thresholds, not your actual predictions:**  
+        *Your specific recommendation appears above based on the model's forecast.*
+        """)
+
         st.dataframe(
             df.style.set_properties(**{
                 'text-align': 'center',
-                'font-size': '16px'
+                'font-size': '16px',
+                'background-color': '#f8f9fa'  # Light gray background
             }).hide(axis="index"),
             use_container_width=True
-            )
+        )
 
-            # Add explanatory note
+        # Add explanatory note
         st.caption("""
-            ℹ️ Note: These thresholds are illustrative. Actual investment decisions should consider 
-            additional factors like market conditions, company fundamentals, and risk tolerance.
-            """)
+        ℹ️ Note: These thresholds are illustrative. Actual investment decisions should consider 
+        additional factors like market conditions, company fundamentals, and risk tolerance.
+        """)
     else:
         st.warning("Could not calculate investment recommendation. Please select the commence date for Prediction.")
         
-
-    # Download Section
-        st.markdown("---")
-        st.subheader("📥 Download Results")
-
 # Download Section
     st.markdown("---")
     st.subheader("📥 Download Results")
@@ -741,4 +709,6 @@ if len(data_close) > 0:
 else:
     if len(data['Close']) == 0:
         st.error("Change date with Yesterday's date!")
-    st.write(f"Due to some technical issues stock data of a {stock_name} is not available so please select previous dates ", unsafe_allow_html=True )
+        st.write(f"Due to some technical issues stock data of a {stock_name} is not available so please select previous dates ", unsafe_allow_html=True )
+    if len(selected_models) == 0:
+        st.write("Please at least one model for processing!")
