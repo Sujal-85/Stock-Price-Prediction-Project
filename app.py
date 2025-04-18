@@ -695,43 +695,40 @@ if len(data_close) > 0:
             use_container_width=True
             )
 
-<<<<<<< HEAD
             # Add explanatory note
-            st.caption("""
+        st.caption("""
             ℹ️ Note: These thresholds are illustrative. Actual investment decisions should consider 
             additional factors like market conditions, company fundamentals, and risk tolerance.
             """)
-        else:
-            st.warning("Could not calculate investment recommendation. Please select the commence date for Prediction.")
+    else:
+        st.warning("Could not calculate investment recommendation. Please select the commence date for Prediction.")
         
 
     # Download Section
         st.markdown("---")
         st.subheader("📥 Download Results")
-=======
+
 # Download Section
     st.markdown("---")
     st.subheader("📥 Download Results")
->>>>>>> 564b18ab3f3434fccb253ca3db166f2115173067
 
-        csv_data = data.to_csv().encode('utf-8')
-        st.download_button(
-            label="Download Stock Data as CSV",
+    csv_data = data.to_csv().encode('utf-8')
+    st.download_button(
+        label="Download Stock Data as CSV",
             data=csv_data,
             file_name=f"{stock}_stock_data.csv",
             mime="text/csv"
-        )
+    )
 
-<<<<<<< HEAD
+
         # Footer
-        st.markdown("---")
-        st.markdown("""
-            <div style="text-align: center; padding: 20px;">
+    st.markdown("---")
+    st.markdown("""
+        <div style="text-align: center; padding: 20px;">
                 <p>Developed with ❤️ using Streamlit, Keras, and Yahoo Finance</p>
                 <p>ℹ️ Note: Stock predictions are for educational purposes only</p>
             </div>
             """, unsafe_allow_html=True)
-=======
     # Footer
     st.markdown("---")
     st.markdown("""
@@ -740,7 +737,7 @@ if len(data_close) > 0:
             <p>ℹ️ Note: Stock predictions are for educational purposes only</p>
         </div>
         """, unsafe_allow_html=True)
->>>>>>> 564b18ab3f3434fccb253ca3db166f2115173067
+    
 else:
     if len(data['Close']) == 0:
         st.error("Change date with Yesterday's date!")
