@@ -656,6 +656,9 @@ try:
             
             # Create confusion matrix (values will be -1, 0, 1)
             cm = confusion_matrix(actual_direction, pred_direction, labels=[-1, 0, 1])
+          
+            # Create confusion matrix (values will be -1, 0, 1)
+            cm = confusion_matrix(actual_direction, pred_direction, labels=[-1, 0, 1])
             
             # Calculate metrics
             total_predictions = len(actual_direction)
@@ -1021,9 +1024,6 @@ except Exception as e:
     st.info("Please refresh the page and try again with different parameters")
     st.stop()
 
-# [Include all the remaining sections from your original code here]
-# Make sure to maintain proper error handling throughout
-
 # Footer
 st.markdown("---")
 st.markdown("""
@@ -1031,4 +1031,5 @@ st.markdown("""
         <p>Developed using Streamlit, Keras, and Yahoo Finance</p>
         <p>ℹ️ Note: Stock predictions are for educational purposes only</p>
     </div>
+
     """, unsafe_allow_html=True)
