@@ -80,11 +80,10 @@ st.markdown("""
         padding: 10px;
         margin-bottom: 10px;
     }
-    
     </style>
     """, unsafe_allow_html=True)
 
-    # You can also add a traditional expandable help section in your sidebar:
+# Help section in sidebar
 with st.sidebar.expander("ℹ️ Help & Instructions", expanded=False):
     st.markdown("""
         ### How to Use This App
@@ -139,7 +138,7 @@ with st.sidebar:
         "Twitter": "TWTR"
     }
     
-    # Stock selection - add custom option
+    # Stock selection
     stock_option = st.radio(
         "Stock Selection Method",
         ["Select from popular stocks", "Enter custom stock symbol"],
@@ -158,7 +157,7 @@ with st.sidebar:
                                    value="RELIANCE.NS")
         if custom_stock:
             stock = custom_stock.upper()
-            stock_name = custom_stock  # This will be displayed as the stock name
+            stock_name = custom_stock
         else:
             st.warning("Please enter a stock symbol")
 
@@ -176,7 +175,7 @@ with st.sidebar:
         default=["Linear Regression", "LSTM", "GRU"]
     )
     if len(selected_models) == 0:
-        st.warning("Please select at least 1 Model for Processing !")
+        st.warning("Please select at least 1 Model for Processing!")
     if len(selected_models) > 3:
         st.warning("Please select Max. 3 models! for Comparison.")
     
@@ -186,7 +185,7 @@ with st.sidebar:
     batch_size = st.slider("Batch Size (for neural networks)", 16, 128, 32, step=16)
     sequence_length = st.slider("Sequence Length (for time series models)", 30, 200, 100, step=10)
     
-    # New option to force retrain
+    # Option to force retrain
     force_retrain = st.checkbox("Force Retrain Models", value=False, 
                                 help="Check this to retrain models even if pre-trained versions exist")
     
@@ -203,51 +202,41 @@ today = datetime.date.today()
 future_prediction = end_date > today
 
 # Initialize variables
-# Initialize variables
 data = None
 use_uploaded_data = False
 
-# Set stock_name_display based on selection method
-if stock_option == "Select from popular stocks":
-    stock_name_display = stock_name  # From the selectbox
-else:
-    try:
-        stock_name_display = stock  # Use the symbol directly for custom stocks
-    except:
-        st.write("Please select a stock from the list or enter a stock symbol you want to analyze.")
 # Process uploaded file if provided
 if uploaded_file is not None:
     try:
         data_load_state = st.info('📊 Loading custom data...')
-        uploaded_data = pd.read_csv(uploaded_file, skiprows=3, header=None)  
-        uploaded_data.columns = ['Date', 'Close', 'High', 'Low', 'Open', 'Volume']
+        uploaded_data = pd.read_csv(uploaded_file)
         
+        # Check required columns
+        if 'Date' not in uploaded_data.columns or 'Close' not in uploaded_data.columns:
+            st.error("Uploaded file must contain 'Date' and 'Close' columns")
+            st.stop()
+            
         uploaded_data['Date'] = pd.to_datetime(uploaded_data['Date'])
         uploaded_data['Close'] = pd.to_numeric(uploaded_data['Close'], errors='coerce')
+        uploaded_data = uploaded_data.dropna(subset=['Close'])
         
-        if uploaded_data['Close'].isnull().any():
-            st.error("Found non-numeric values in Close price column. Please check your data.")
-            uploaded_file = None
-        else:
-            data = uploaded_data.set_index('Date')[['Close']]
-            data = data.sort_index()
+        if len(uploaded_data) < sequence_length * 2:
+            st.error(f"Not enough data points. Need at least {sequence_length * 2} records.")
+            st.stop()
             
-            if len(data) < sequence_length * 2:
-                st.error(f"Not enough data points. Need at least {sequence_length * 2} records.")
-                uploaded_file = None
-            else:
-                data_load_state.success('✅ Custom data loaded successfully!')
-                use_uploaded_data = True
-                stock_name_display = "Uploaded Stock Data"
-                
-                with st.expander("View uploaded data preview"):
-                    st.write(data.head())
-                    st.write(f"Data range: {data.index[0]} to {data.index[-1]}")
+        data = uploaded_data.set_index('Date')[['Close']]
+        data = data.sort_index()
+        data_load_state.success('✅ Custom data loaded successfully!')
+        use_uploaded_data = True
+        stock_name_display = "Uploaded Stock Data"
+        
+        with st.expander("View uploaded data preview"):
+            st.write(data.head())
+            st.write(f"Data range: {data.index[0]} to {data.index[-1]}")
     
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
-        uploaded_file = None
-
+        st.stop()
 
 # Function to cache downloaded data
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -255,25 +244,37 @@ def fetch_stock_data(stock, start_date, end_date):
     """Fetch stock data from Yahoo Finance with caching"""
     try:
         data = yf.download(stock, start=start_date, end=min(end_date, today))
+        if data.empty:
+            raise ValueError("No data returned from Yahoo Finance")
         return data
     except Exception as e:
         st.error(f"Error fetching data for {stock}: {str(e)}")
         return None
 
 # Download Stock Data if no file uploaded
-if data is None:
+if not use_uploaded_data:
     try:
-        data_load_state = st.info(f'📊 Loading {stock_name} ({stock}) data...')
+        data_load_state = st.info(f'📊 Loading {stock} data...')
         data = fetch_stock_data(stock, start_date, end_date)
         
         if data is None or data.empty:
             st.error(f"Could not fetch data for {stock}. Please check the symbol is correct.")
             st.stop()
         
-        data_load_state.success(f'✅ {stock_name} ({stock}) data loaded successfully!')
-        stock_name_display = stock_name if stock_option == "Enter custom stock symbol" else stock_name
-    except:
-        st.write("")
+        data_load_state.success(f'✅ {stock} data loaded successfully!')
+        stock_name_display = stock_name if stock_option == "Select from popular stocks" else stock
+    except Exception as e:
+        st.error(f"Error loading data: {str(e)}")
+        st.stop()
+
+# Data validation
+if len(data) < sequence_length * 2:
+    st.error(f"Not enough data points for the selected sequence length. Need at least {sequence_length * 2} records.")
+    st.info("Please try:")
+    st.info("- Selecting a longer date range")
+    st.info("- Reducing the sequence length")
+    st.info("- Choosing a different stock")
+    st.stop()
 
 # Display raw data
 with st.expander("🔍 View Raw Data", expanded=True):
@@ -281,186 +282,213 @@ with st.expander("🔍 View Raw Data", expanded=True):
     st.write("Most likely a stock price represents in USD (United States Dollars) — that's a common unit for stock prices.")
 
 # Prepare Data
-try: 
-    if len(data) > 0 and len(selected_models) > 0:
-        # Create a preprocessor function with caching
-        @st.cache_data(ttl=3600, show_spinner=False)
-        def preprocess_data(data_close_values, sequence_length):
-            """Preprocess data with caching"""
-            scaler = MinMaxScaler(feature_range=(0, 1))
-            scaled_data = scaler.fit_transform(data_close_values)
-            
-            # Train-Test Split
-            train_size = int(len(scaled_data) * 0.80)
-            train_data = scaled_data[:train_size]
-            test_data = scaled_data[train_size - sequence_length:]  # Include last n days from train for sequence
-            
-            return scaled_data, train_data, test_data, scaler, train_size
-        
-        # Create sequences
-        def create_sequences(data, seq_length):
-            x, y = [], []
-            for i in range(seq_length, len(data)):
-                x.append(data[i-seq_length:i])
-                y.append(data[i, 0])
-            return np.array(x), np.array(y)
-        
-        # For linear regression (simpler approach)
-        def prepare_linear_data(data, seq_length):
-            x, y = [], []
-            for i in range(seq_length, len(data)):
-                x.append(data[i-seq_length:i].flatten())  # Flatten the sequence
-                y.append(data[i, 0])
-            return np.array(x), np.array(y)
-        
-        # Get and preprocess data
-        data_close = data[['Close']]
-        data_hash = hashlib.md5(data_close.to_json().encode()).hexdigest()
-        
-        # Create a unique identifier for the data configuration
-        data_config_id = f"{data_hash}_{sequence_length}"
-        
-        # Use caching for data preprocessing
-        scaled_data, train_data, test_data, scaler, train_size = preprocess_data(data_close, sequence_length)
-        
-        # Save scaler for future use
-        scaler_path = f"scalers/scaler_{data_config_id}.pkl"
-        with open(scaler_path, 'wb') as f:
-            pickle.dump(scaler, f)
-        
-        # Create sequences for training
-        x_train, y_train = create_sequences(train_data, sequence_length)
-        x_test, y_test = create_sequences(test_data, sequence_length)
-        
-        # For linear regression
-        x_train_linear, y_train_linear = prepare_linear_data(train_data, sequence_length)
-        x_test_linear, y_test_linear = prepare_linear_data(test_data, sequence_length)
-        
-        # Model Building and Training
-        models = {}
-        model_performance = {}
+@st.cache_data(ttl=3600, show_spinner=False)
+def preprocess_data(data_close_values, sequence_length):
+    """Preprocess data with caching"""
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(data_close_values)
+    
+    # Train-Test Split
+    train_size = int(len(scaled_data) * 0.80)
+    train_data = scaled_data[:train_size]
+    test_data = scaled_data[train_size - sequence_length:]  # Include last n days from train for sequence
+    
+    return scaled_data, train_data, test_data, scaler, train_size
 
-        # Define a function to get or train a model
-        def get_or_train_model(model_type, model_id):
-            model_path = f"models/{model_type}_{model_id}.h5"
-            
-            # Check if model exists and we're not forcing retrain
-            if os.path.exists(model_path) and not force_retrain:
-                st.info(f"⚡ Loading pre-trained {model_type} model...")
-                start_time = time.time()
-                model = load_model(model_path)
-                end_time = time.time()
-                st.success(f"✅ {model_type} model loaded in {end_time - start_time:.2f} seconds")
-                return model
-            
-            # Train new model
+# Create sequences with validation
+def create_sequences(data, seq_length):
+    """Create sequences with proper error handling"""
+    if len(data) < seq_length:
+        raise ValueError(f"Not enough data points. Need at least {seq_length} records but got {len(data)}")
+    
+    x, y = [], []
+    for i in range(seq_length, len(data)):
+        x.append(data[i-seq_length:i])
+        y.append(data[i, 0])
+    return np.array(x), np.array(y)
+
+# For linear regression
+def prepare_linear_data(data, seq_length):
+    """Prepare data for linear regression"""
+    if len(data) < seq_length:
+        raise ValueError(f"Not enough data points. Need at least {seq_length} records but got {len(data)}")
+    
+    x, y = [], []
+    for i in range(seq_length, len(data)):
+        x.append(data[i-seq_length:i].flatten())
+        y.append(data[i, 0])
+    return np.array(x), np.array(y)
+
+# Get and preprocess data
+try:
+    data_close = data[['Close']].values
+    data_hash = hashlib.md5(pd.util.hash_pandas_object(data[['Close']]).to_json().encode()).hexdigest()
+    data_config_id = f"{data_hash}_{sequence_length}"
+    
+    scaled_data, train_data, test_data, scaler, train_size = preprocess_data(data_close, sequence_length)
+    
+    # Save scaler
+    scaler_path = f"scalers/scaler_{data_config_id}.pkl"
+    with open(scaler_path, 'wb') as f:
+        pickle.dump(scaler, f)
+    
+    # Create sequences
+    x_train, y_train = create_sequences(train_data, sequence_length)
+    x_test, y_test = create_sequences(test_data, sequence_length)
+    
+    # For linear regression
+    x_train_linear, y_train_linear = prepare_linear_data(train_data, sequence_length)
+    x_test_linear, y_test_linear = prepare_linear_data(test_data, sequence_length)
+    
+except ValueError as e:
+    st.error(f"Data processing error: {str(e)}")
+    st.info("Please refresh the page and try with different parameters")
+    st.stop()
+except Exception as e:
+    st.error(f"Unexpected error during data processing: {str(e)}")
+    st.stop()
+
+# Model Building and Training
+models = {}
+model_performance = {}
+
+def get_or_train_model(model_type, model_id):
+    """Get or train a model with proper error handling"""
+    model_path = f"models/{model_type}_{model_id}.h5"
+    
+    # Check if model exists and we're not forcing retrain
+    if os.path.exists(model_path) and not force_retrain:
+        try:
+            st.info(f"⚡ Loading pre-trained {model_type} model...")
+            start_time = time.time()
             if model_type == "Linear Regression":
-                with st.spinner(f'🧮 Training {model_type} Model...'):
-                    model = LinearRegression()
-                    model.fit(x_train_linear, y_train_linear)
-                    # Save model using pickle for Linear Regression
-                    with open(model_path.replace('.h5', '.pkl'), 'wb') as f:
-                        pickle.dump(model, f)
-            elif model_type == "LSTM":
-                with st.spinner(f'🧠 Training {model_type} Model...'):
-                    model = Sequential([
-                        LSTM(50, return_sequences=True, input_shape=(x_train.shape[1], 1)),
-                        LSTM(50, return_sequences=True),
-                        LSTM(50),
-                        Dense(1)
-                    ])
-                    model.compile(optimizer='adam', loss='mean_squared_error')
-                    model.fit(x_train, y_train, epochs=epochs, batch_size=batch_size, verbose=0)
-                    model.save(model_path)
-            elif model_type == "GRU":
-                with st.spinner(f'🧠 Training {model_type} Model...'):
-                    model = Sequential([
-                        GRU(50, return_sequences=True, input_shape=(x_train.shape[1], 1)),
-                        GRU(50, return_sequences=True),
-                        GRU(50),
-                        Dense(1)
-                    ])
-                    model.compile(optimizer='adam', loss='mean_squared_error')
-                    model.fit(x_train, y_train, epochs=epochs, batch_size=batch_size, verbose=0)
-                    model.save(model_path)
-            elif model_type == "SimpleRNN":
-                with st.spinner(f'🧠 Training {model_type} Model...'):
-                    model = Sequential([
-                        SimpleRNN(50, return_sequences=True, input_shape=(x_train.shape[1], 1)),
-                        SimpleRNN(50, return_sequences=True),
-                        SimpleRNN(50),
-                        Dense(1)
-                    ])
-                    model.compile(optimizer='adam', loss='mean_squared_error')
-                    model.fit(x_train, y_train, epochs=epochs, batch_size=batch_size, verbose=0)
-                    model.save(model_path)
-            
+                with open(model_path.replace('.h5', '.pkl'), 'rb') as f:
+                    model = pickle.load(f)
+            else:
+                model = load_model(model_path)
+            end_time = time.time()
+            st.success(f"✅ {model_type} model loaded in {end_time - start_time:.2f} seconds")
             return model
+        except Exception as e:
+            st.warning(f"Failed to load pre-trained model: {str(e)}. Retraining...")
+    
+    # Train new model
+    try:
+        if model_type == "Linear Regression":
+            with st.spinner(f'🧮 Training {model_type} Model...'):
+                model = LinearRegression()
+                model.fit(x_train_linear, y_train_linear)
+                with open(model_path.replace('.h5', '.pkl'), 'wb') as f:
+                    pickle.dump(model, f)
+        
+        elif model_type == "LSTM":
+            with st.spinner(f'🧠 Training {model_type} Model...'):
+                model = Sequential([
+                    LSTM(50, return_sequences=True, input_shape=(x_train.shape[1], 1)),
+                    LSTM(50, return_sequences=True),
+                    LSTM(50),
+                    Dense(1)
+                ])
+                model.compile(optimizer='adam', loss='mean_squared_error')
+                model.fit(x_train, y_train, epochs=epochs, batch_size=batch_size, verbose=0)
+                model.save(model_path)
+        
+        elif model_type == "GRU":
+            with st.spinner(f'🧠 Training {model_type} Model...'):
+                model = Sequential([
+                    GRU(50, return_sequences=True, input_shape=(x_train.shape[1], 1)),
+                    GRU(50, return_sequences=True),
+                    GRU(50),
+                    Dense(1)
+                ])
+                model.compile(optimizer='adam', loss='mean_squared_error')
+                model.fit(x_train, y_train, epochs=epochs, batch_size=batch_size, verbose=0)
+                model.save(model_path)
+        
+        elif model_type == "SimpleRNN":
+            with st.spinner(f'🧠 Training {model_type} Model...'):
+                model = Sequential([
+                    SimpleRNN(50, return_sequences=True, input_shape=(x_train.shape[1], 1)),
+                    SimpleRNN(50, return_sequences=True),
+                    SimpleRNN(50),
+                    Dense(1)
+                ])
+                model.compile(optimizer='adam', loss='mean_squared_error')
+                model.fit(x_train, y_train, epochs=epochs, batch_size=batch_size, verbose=0)
+                model.save(model_path)
+        
+        return model
+    
+    except Exception as e:
+        st.error(f"Error training {model_type} model: {str(e)}")
+        return None
 
-        # Get or train models based on selection
-        for model_name in selected_models:
-            # Generate a unique model ID based on parameters
-            model_id = generate_model_id(stock, start_date, end_date, model_name, sequence_length, epochs, batch_size)
-            
-            # Get or train the model
-            models[model_name] = get_or_train_model(model_name, model_id)
+# Get or train models
+for model_name in selected_models:
+    model_id = generate_model_id(stock, start_date, end_date, model_name, sequence_length, epochs, batch_size)
+    models[model_name] = get_or_train_model(model_name, model_id)
 
-        # Make Predictions and Evaluate
-        y_test_rescaled = scaler.inverse_transform(y_test.reshape(-1, 1))
+# Remove any None models (that failed to train)
+models = {k: v for k, v in models.items() if v is not None}
+if not models:
+    st.error("No models were successfully trained. Please check your parameters and try again.")
+    st.stop()
 
-        # Results Display
-        st.markdown("---")
-        st.markdown(f'<h2 class="stock-header">📉 {stock_name_display} Price Prediction Results</h2>', unsafe_allow_html=True)
+# Make Predictions and Evaluate
+try:
+    y_test_rescaled = scaler.inverse_transform(y_test.reshape(-1, 1))
+    
+    # Results Display
+    st.markdown("---")
+    st.markdown(f'<h2 class="stock-header">📉 {stock_name_display} Price Prediction Results</h2>', unsafe_allow_html=True)
 
-        # Create columns for model cards
-        cols = st.columns(len(models))
+    # Create columns for model cards
+    cols = st.columns(len(models))
+    model_colors = {
+        "Linear Regression": "linear-reg-card",
+        "LSTM": "lstm-card",
+        "GRU": "gru-card",
+        "SimpleRNN": "rnn-card"
+    }
 
-        model_colors = {
-            "Linear Regression": "linear-reg-card",
-            "LSTM": "lstm-card",
-            "GRU": "gru-card",
-            "SimpleRNN": "rnn-card"
-        }
-
-        for idx, (model_name, model) in enumerate(models.items()):
-            with cols[idx]:
-                with st.container():
-                    card_class = model_colors.get(model_name, "model-card")
-                    st.markdown(f'<div class="model-card {card_class}">', unsafe_allow_html=True)
+    for idx, (model_name, model) in enumerate(models.items()):
+        with cols[idx]:
+            with st.container():
+                card_class = model_colors.get(model_name, "model-card")
+                st.markdown(f'<div class="model-card {card_class}">', unsafe_allow_html=True)
+                st.subheader(model_name)
+                
+                try:
+                    # Make predictions
+                    if model_name == "Linear Regression":
+                        predictions = model.predict(x_test_linear)
+                    else:
+                        predictions = model.predict(x_test)
                     
-                    # Skip if model is None
-                    if model is None:
-                        st.error(f"{model_name} model failed to initialize")
-                        st.markdown('</div>', unsafe_allow_html=True)
-                        continue
-                        
-                    try:
-                        # Make predictions
-                        if model_name == "Linear Regression":
-                            predictions = model.predict(x_test_linear)
-                        else:
-                            predictions = model.predict(x_test)
-                        
-                        predictions = predictions.reshape(-1, 1)
-                        predictions = scaler.inverse_transform(predictions)
+                    predictions = predictions.reshape(-1, 1)
+                    predictions = scaler.inverse_transform(predictions)
                     
                     # Calculate metrics
-                        mse = mean_squared_error(y_test_rescaled, predictions)
-                        rmse = np.sqrt(mse)
-                        mae = mean_absolute_error(y_test_rescaled, predictions)
-                        mape = np.mean(np.abs((y_test_rescaled - predictions) / y_test_rescaled)) * 100
-                        r2 = r2_score(y_test_rescaled, predictions)
-                        accuracy = max(0, (1 - mape/100) * 100)  # Simple accuracy metric
+                    mse = mean_squared_error(y_test_rescaled, predictions)
+                    rmse = np.sqrt(mse)
+                    mae = mean_absolute_error(y_test_rescaled, predictions)
+                    mape = np.mean(np.abs((y_test_rescaled - predictions) / y_test_rescaled)) * 100
+                    r2 = r2_score(y_test_rescaled, predictions)
+                    accuracy = max(0, (1 - mape/100) * 100)
                     
-                        st.subheader(model_name)
-                    except Exception as e:
-                        st.error(f"Prediction failed for {model_name}: {str(e)}")
-                        st.markdown('</div>', unsafe_allow_html=True)
-                        continue
+                    # Store performance
+                    model_performance[model_name] = {
+                        "MSE": mse,
+                        "RMSE": rmse,
+                        "MAE": mae,
+                        "MAPE": mape,
+                        "R2": r2,
+                        "Accuracy": accuracy,
+                        "Predictions": predictions,
+                        "Model": model
+                    }
                     
-                    st.markdown('</div>', unsafe_allow_html=True)
-                    
-                    # Display metrics with full forms
+                    # Display metrics
                     with st.expander("📊 View Metrics", expanded=True):
                         st.markdown(f"""
                         <div class="metric-box">
@@ -503,62 +531,61 @@ try:
                         <small>Percentage accuracy based on MAPE</small>
                         </div>
                         """, unsafe_allow_html=True)
-                    
-                    st.markdown('</div>', unsafe_allow_html=True)
-                    
-                    # Store performance for comparison
-                    model_performance[model_name] = {
-                        "MSE": mse,
-                        "RMSE": rmse,
-                        "MAE": mae,
-                        "MAPE": mape,
-                        "R2": r2,
-                        "Accuracy": accuracy,
-                        "Predictions": predictions,
-                        "Model": model
-                    }
+                
+                except IndexError as e:
+                    if "pop from empty list" in str(e):
+                        st.error(f"⚠️ Prediction failed for {model_name}: Not enough data available")
+                        st.info("Please try refreshing the page and selecting different parameters")
+                    else:
+                        st.error(f"Prediction failed for {model_name}: {str(e)}")
+                    continue
+                
+                except Exception as e:
+                    st.error(f"Prediction failed for {model_name}: {str(e)}")
+                    continue
+                
+                st.markdown('</div>', unsafe_allow_html=True)
 
-        # Plot Predictions
-        # Get the dates corresponding to the test set
-        test_dates = data.index[train_size:train_size + len(y_test_rescaled)]
+    # Plot Predictions
+    test_dates = data.index[train_size:train_size + len(y_test_rescaled)]
+    
+    fig1 = plt.figure(figsize=(14, 7))
+    plt.plot(test_dates, y_test_rescaled, color='blue', label='Actual Prices', linewidth=2)
 
-        fig1 = plt.figure(figsize=(14, 7))
-        plt.plot(test_dates, y_test_rescaled, color='blue', label='Actual Prices', linewidth=2)
+    colors = ['#4b8df8', '#ff6b6b', '#51cf66', '#fcc419']
+    for idx, (model_name, perf) in enumerate(model_performance.items()):
+        plt.plot(test_dates, perf["Predictions"], color=colors[idx], 
+                label=f'{model_name} Predictions', linestyle='--')
 
-        colors = ['#4b8df8', '#ff6b6b', '#51cf66', '#fcc419']
-        for idx, (model_name, perf) in enumerate(model_performance.items()):
-            plt.plot(test_dates, perf["Predictions"], color=colors[idx], 
-                    label=f'{model_name} Predictions', linestyle='--')
+    plt.title(f"{stock_name_display} Price Prediction Comparison", fontsize=16)
+    plt.xlabel("Date", fontsize=14)
+    plt.ylabel("Price (USD)", fontsize=14)
+    plt.legend(fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.xticks(rotation=45)
+    fig1.autofmt_xdate()
+    st.pyplot(fig1)
 
-        plt.title(f"{stock_name_display} Price Prediction Comparison", fontsize=16)
-        plt.xlabel("Date", fontsize=14)
-        plt.ylabel("Price (USD)", fontsize=14)
-        plt.legend(fontsize=12)
-        plt.grid(True, linestyle='--', alpha=0.7)
-        plt.xticks(rotation=45)
-        fig1.autofmt_xdate()
-        st.pyplot(fig1)
-
-        if "Linear Regression" in selected_models:
+    if "Linear Regression" in selected_models:
         # Get the linear regression model
-            lr_model = model_performance["Linear Regression"]["Model"]
+        lr_model = model_performance["Linear Regression"]["Model"]
             
             # Display the equation
-            st.markdown("---")
-            st.subheader("📈 Linear Regression Details")
+        st.markdown("---")
+        st.subheader("📈 Linear Regression Details")
             
             # Get coefficients (flattened features)
-            coefficients = lr_model.coef_
-            intercept = lr_model.intercept_
+        coefficients = lr_model.coef_
+        intercept = lr_model.intercept_
             
             # Create equation string
-            equation = f"Predicted Price = {intercept:.4f}"
-            for i, coef in enumerate(coefficients[0:5]):  # Show first 5 coefficients for brevity
-                equation += f" + ({coef:.4f} * X{i+1})"
-            if len(coefficients) > 5:
-                equation += " + ..."
+        equation = f"Predicted Price = {intercept:.4f}"
+        for i, coef in enumerate(coefficients[0:5]):  # Show first 5 coefficients for brevity
+            equation += f" + ({coef:.4f} * X{i+1})"
+        if len(coefficients) > 5:
+            equation += " + ..."
             
-            st.markdown(f"""
+        st.markdown(f"""
             <div class="model-card linear-reg-card">
                 <h3>Regression Equation</h3>
                 <div style="background-color: #f0f2f6; padding: 15px; border-radius: 5px;">
@@ -570,58 +597,77 @@ try:
             </div>
             """, unsafe_allow_html=True)
 
-            fig_lr = plt.figure(figsize=(10, 6))
+        fig_lr = plt.figure(figsize=(10, 6))
         
         # Plot actual vs predicted
-            plt.scatter(y_test_rescaled, model_performance["Linear Regression"]["Predictions"], 
+        plt.scatter(y_test_rescaled, model_performance["Linear Regression"]["Predictions"], 
                         alpha=0.5, color='blue', label='Predictions')
             
             # Plot perfect prediction line
-            max_val = max(y_test_rescaled.max(), model_performance["Linear Regression"]["Predictions"].max())
-            min_val = min(y_test_rescaled.min(), model_performance["Linear Regression"]["Predictions"].min())
-            plt.plot([min_val, max_val], [min_val, max_val], 'r--', label='Perfect Prediction')
+        max_val = max(y_test_rescaled.max(), model_performance["Linear Regression"]["Predictions"].max())
+        min_val = min(y_test_rescaled.min(), model_performance["Linear Regression"]["Predictions"].min())
+        plt.plot([min_val, max_val], [min_val, max_val], 'r--', label='Perfect Prediction')
             
-            plt.title('Actual vs Predicted Prices (Linear Regression)')
-            plt.xlabel('Actual Prices')
-            plt.ylabel('Predicted Prices')
-            plt.legend()
-            plt.grid(True, alpha=0.3)
+        plt.title('Actual vs Predicted Prices (Linear Regression)')
+        plt.xlabel('Actual Prices')
+        plt.ylabel('Predicted Prices')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        st.pyplot(fig_lr)
+
+
+        actual_direction = np.sign(np.diff(y_test_rescaled.flatten()))
+        pred_direction = np.sign(np.diff(model_performance["Linear Regression"]["Predictions"].flatten()))
+        
+        # Create confusion matrix
+        
+        cm = confusion_matrix(actual_direction, pred_direction)
+
+        # Create a smaller figure with adjusted parameters
+        fig_cm = plt.figure(figsize=(3, 2), dpi=100)  # Smaller figure size (3x2 inches)
+
+        # Create heatmap with smaller fonts and tighter layout
+        ax = sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                        xticklabels=['Down', 'Up'],
+                        yticklabels=['Down', 'Up'],
+                        annot_kws={'size': 8},  # Smaller annotation font
+                        cbar=False)  # Remove color bar to save space
+
+        plt.title('Direction Prediction', fontsize=6, pad=2)
+        plt.xlabel('Predicted', fontsize=6)
+        plt.ylabel('Actual', fontsize=6)
+        plt.xticks(fontsize=6)
+        plt.yticks(fontsize=6)
+
+        # Make the plot tighter
+        plt.tight_layout()
+
+        st.pyplot(fig_cm)
+        
+        if len(y_test_rescaled) > 1:  # Ensure we have enough data points
+        # Calculate actual and predicted price directions (1=up, 0=flat, -1=down)
+            actual_changes = np.diff(y_test_rescaled.flatten())
+            pred_changes = np.diff(model_performance["Linear Regression"]["Predictions"].flatten())
             
-            st.pyplot(fig_lr)
-
-
-            actual_direction = np.sign(np.diff(y_test_rescaled.flatten()))
-            pred_direction = np.sign(np.diff(model_performance["Linear Regression"]["Predictions"].flatten()))
+            # Handle flat movements (you might want to count these separately)
+            actual_direction = np.sign(actual_changes)
+            pred_direction = np.sign(pred_changes)
             
-            # Create confusion matrix
+            # Create confusion matrix (values will be -1, 0, 1)
+            cm = confusion_matrix(actual_direction, pred_direction, labels=[-1, 0, 1])
             
-            cm = confusion_matrix(actual_direction, pred_direction)
-
-            # Create a smaller figure with adjusted parameters
-            fig_cm = plt.figure(figsize=(3, 2), dpi=100)  # Smaller figure size (3x2 inches)
-
-            # Create heatmap with smaller fonts and tighter layout
-            ax = sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                            xticklabels=['Down', 'Up'],
-                            yticklabels=['Down', 'Up'],
-                            annot_kws={'size': 8},  # Smaller annotation font
-                            cbar=False)  # Remove color bar to save space
-
-            plt.title('Direction Prediction', fontsize=6, pad=2)
-            plt.xlabel('Predicted', fontsize=6)
-            plt.ylabel('Actual', fontsize=6)
-            plt.xticks(fontsize=6)
-            plt.yticks(fontsize=6)
-
-            # Make the plot tighter
-            plt.tight_layout()
-
-            st.pyplot(fig_cm)
+            # Calculate metrics
+            total_predictions = len(actual_direction)
+            correct_predictions = np.sum(actual_direction == pred_direction)
+            direction_accuracy = correct_predictions / total_predictions
             
-            # Calculate direction accuracy metrics
-            direction_accuracy = np.mean(actual_direction == pred_direction)
-            up_correct = cm[1,1] / cm[1,:].sum() if cm[1,:].sum() > 0 else 0
-            down_correct = cm[0,0] / cm[0,:].sum() if cm[0,:].sum() > 0 else 0
+            # Calculate up/down accuracy (excluding flat movements)
+            up_actual = (actual_direction == 1)
+            down_actual = (actual_direction == -1)
+            
+            up_correct = np.sum((pred_direction == 1) & up_actual) / np.sum(up_actual) if np.sum(up_actual) > 0 else 0
+            down_correct = np.sum((pred_direction == -1) & down_actual) / np.sum(down_actual) if np.sum(down_actual) > 0 else 0
             
             st.markdown(f"""
             <div class="model-card" style="margin-top: 20px;">
@@ -642,6 +688,8 @@ try:
                 </p>
             </div>
             """, unsafe_allow_html=True)
+        else:
+            st.warning("Not enough data points to calculate direction accuracy metrics")
 
         # Future Prediction Section
         if future_prediction:
@@ -960,17 +1008,6 @@ try:
             file_name=f"{stock_name_display.replace(' ', '_')}_stock_data.csv",
             mime="text/csv"
         )
-
-        # Footer
-        st.markdown("---")
-        st.markdown("""
-            <div style="text-align: center; padding: 20px;">
-                <p>Developed using Streamlit, Keras, and Yahoo Finance</p>
-                <p>ℹ️ Note: Stock predictions are for educational purposes only</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-
         
     else:
         if len(data) == 0:
@@ -978,5 +1015,20 @@ try:
             st.write(f"Due to some technical issues stock data of a {stock_name} is not available so please select previous dates")
         if len(selected_models) == 0:
             st.write("Please select at least one model for processing!")
-except:
-    st.write("")
+
+except Exception as e:
+    st.error(f"An error occurred during prediction: {str(e)}")
+    st.info("Please refresh the page and try again with different parameters")
+    st.stop()
+
+# [Include all the remaining sections from your original code here]
+# Make sure to maintain proper error handling throughout
+
+# Footer
+st.markdown("---")
+st.markdown("""
+    <div style="text-align: center; padding: 20px;">
+        <p>Developed using Streamlit, Keras, and Yahoo Finance</p>
+        <p>ℹ️ Note: Stock predictions are for educational purposes only</p>
+    </div>
+    """, unsafe_allow_html=True)
