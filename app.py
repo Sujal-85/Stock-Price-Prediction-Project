@@ -289,7 +289,7 @@ def preprocess_data(data_close_values, sequence_length):
     scaled_data = scaler.fit_transform(data_close_values)
     
     # Train-Test Split
-    train_size = int(len(scaled_data) * 0.80)
+    train_size = int(len(scaled_data) * 0.90)
     train_data = scaled_data[:train_size]
     test_data = scaled_data[train_size - sequence_length:]  # Include last n days from train for sequence
     
@@ -656,21 +656,11 @@ try:
             
             # Create confusion matrix (values will be -1, 0, 1)
             cm = confusion_matrix(actual_direction, pred_direction, labels=[-1, 0, 1])
-          
-            # Create confusion matrix (values will be -1, 0, 1)
-            cm = confusion_matrix(actual_direction, pred_direction, labels=[-1, 0, 1])
             
             # Calculate metrics
             total_predictions = len(actual_direction)
             correct_predictions = np.sum(actual_direction == pred_direction)
             direction_accuracy = correct_predictions / total_predictions
-            
-            # Calculate up/down accuracy (excluding flat movements)
-            up_actual = (actual_direction == 1)
-            down_actual = (actual_direction == -1)
-            
-            up_correct = np.sum((pred_direction == 1) & up_actual) / np.sum(up_actual) if np.sum(up_actual) > 0 else 0
-            down_correct = np.sum((pred_direction == -1) & down_actual) / np.sum(down_actual) if np.sum(down_actual) > 0 else 0
             
             st.markdown(f"""
             <div class="model-card" style="margin-top: 20px;">
@@ -679,15 +669,9 @@ try:
                     <div class="metric-box">
                         <b>Overall Direction Accuracy:</b> {direction_accuracy:.1%}
                     </div>
-                    <div class="metric-box">
-                        <b>Up Moves Correctly Predicted:</b> {up_correct:.1%}
-                    </div>
-                    <div class="metric-box">
-                        <b>Down Moves Correctly Predicted:</b> {down_correct:.1%}
-                    </div>
                 </div>
                 <p style="font-size: 0.9em; margin-top: 10px;">
-                    Note: Random guessing would yield ~50% accuracy. Above 55% may be considered meaningful.
+                    Note: Above 55% may be considered meaningful.
                 </p>
             </div>
             """, unsafe_allow_html=True)
@@ -1024,6 +1008,7 @@ except Exception as e:
     st.info("Please refresh the page and try again with different parameters")
     st.stop()
 
+
 # Footer
 st.markdown("---")
 st.markdown("""
@@ -1031,5 +1016,4 @@ st.markdown("""
         <p>Developed using Streamlit, Keras, and Yahoo Finance</p>
         <p>ℹ️ Note: Stock predictions are for educational purposes only</p>
     </div>
-
     """, unsafe_allow_html=True)
