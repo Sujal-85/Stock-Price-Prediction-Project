@@ -289,7 +289,7 @@ def preprocess_data(data_close_values, sequence_length):
     scaled_data = scaler.fit_transform(data_close_values)
     
     # Train-Test Split
-    train_size = int(len(scaled_data) * 0.90)
+    train_size = int(len(scaled_data) * 0.80)
     train_data = scaled_data[:train_size]
     test_data = scaled_data[train_size - sequence_length:]  # Include last n days from train for sequence
     
