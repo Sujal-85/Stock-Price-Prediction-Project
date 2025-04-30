@@ -2,12 +2,17 @@
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from keras.models import Sequential, load_model
-from keras.layers import LSTM, GRU, Dense, SimpleRNN
+from keras.models import Sequential, load_model, Model
+from keras.layers import LSTM, GRU, Dense, SimpleRNN, concatenate, Dropout, Input
+from keras.optimizers import Adam
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import confusion_matrix
+from statsmodels.tsa.arima.model import ARIMA
+from prophet import Prophet
+from statsmodels.tsa.stattools import adfuller
+from pmdarima import auto_arima
 import matplotlib.pyplot as plt
 import streamlit as st
 import streamlit.components.v1 as components
@@ -19,6 +24,11 @@ import os
 import hashlib
 import pickle
 import time
+from keras import backend as K
+
+
+# Check if the page is being reloaded
+
 
 # Create directories for saving models and scalers if they don't exist
 os.makedirs('models', exist_ok=True)
@@ -79,6 +89,15 @@ st.markdown("""
         border-radius: 5px;
         padding: 10px;
         margin-bottom: 10px;
+    }
+    .arima-card {
+        border-left: 5px solid #845ef7;
+    }
+    .prophet-card {
+        border-left: 5px solid #20c997;
+    }
+    .hybrid-card {
+        border-left: 5px solid #f76707;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -171,7 +190,7 @@ with st.sidebar:
     # Model selection
     selected_models = st.multiselect(
         "Select Models to Compare",
-        ["Linear Regression", "LSTM", "GRU", "SimpleRNN"],
+        ["Linear Regression", "LSTM", "GRU", "SimpleRNN", "ARIMA", "Prophet", "LSTM-GRU Hybrid"],
         default=["Linear Regression", "LSTM", "GRU"]
     )
     if len(selected_models) == 0:
@@ -364,6 +383,9 @@ def get_or_train_model(model_type, model_id):
             if model_type == "Linear Regression":
                 with open(model_path.replace('.h5', '.pkl'), 'rb') as f:
                     model = pickle.load(f)
+            elif model_type in ["ARIMA", "Prophet"]:
+                with open(model_path, 'rb') as f:
+                    model = pickle.load(f)
             else:
                 model = load_model(model_path)
             end_time = time.time()
@@ -384,44 +406,199 @@ def get_or_train_model(model_type, model_id):
         elif model_type == "LSTM":
             with st.spinner(f'🧠 Training {model_type} Model...'):
                 model = Sequential([
-                    LSTM(50, return_sequences=True, input_shape=(x_train.shape[1], 1)),
-                    LSTM(50, return_sequences=True),
-                    LSTM(50),
+                    LSTM(100, return_sequences=True, input_shape=(x_train.shape[1], 1)),
+                    Dropout(0.2),
+                    LSTM(100, return_sequences=True),
+                    Dropout(0.2),
+                    LSTM(100),
+                    Dropout(0.2),
                     Dense(1)
                 ])
-                model.compile(optimizer='adam', loss='mean_squared_error')
+                model.compile(optimizer=Adam(learning_rate=0.001), loss='mean_squared_error')
                 model.fit(x_train, y_train, epochs=epochs, batch_size=batch_size, verbose=0)
                 model.save(model_path)
         
         elif model_type == "GRU":
             with st.spinner(f'🧠 Training {model_type} Model...'):
                 model = Sequential([
-                    GRU(50, return_sequences=True, input_shape=(x_train.shape[1], 1)),
-                    GRU(50, return_sequences=True),
-                    GRU(50),
+                    GRU(100, return_sequences=True, input_shape=(x_train.shape[1], 1)),
+                    Dropout(0.2),
+                    GRU(100, return_sequences=True),
+                    Dropout(0.2),
+                    GRU(100),
+                    Dropout(0.2),
                     Dense(1)
                 ])
-                model.compile(optimizer='adam', loss='mean_squared_error')
+                model.compile(optimizer=Adam(learning_rate=0.001), loss='mean_squared_error')
                 model.fit(x_train, y_train, epochs=epochs, batch_size=batch_size, verbose=0)
                 model.save(model_path)
         
         elif model_type == "SimpleRNN":
             with st.spinner(f'🧠 Training {model_type} Model...'):
-                model = Sequential([
-                    SimpleRNN(50, return_sequences=True, input_shape=(x_train.shape[1], 1)),
-                    SimpleRNN(50, return_sequences=True),
-                    SimpleRNN(50),
-                    Dense(1)
-                ])
-                model.compile(optimizer='adam', loss='mean_squared_error')
-                model.fit(x_train, y_train, epochs=epochs, batch_size=batch_size, verbose=0)
-                model.save(model_path)
+                try:
+                    # Initialize model
+                    model = Sequential()
+                    
+                    # First layer with input shape
+                    model.add(SimpleRNN(
+                        units=100,
+                        return_sequences=True,
+                        input_shape=(x_train.shape[1], 1)  # Note: Added missing parenthesis
+                    ))
+                    model.add(Dropout(0.2))
+                    
+                    # Second layer
+                    model.add(SimpleRNN(
+                        units=100,
+                        return_sequences=True
+                    ))
+                    model.add(Dropout(0.2))
+                    
+                    # Final RNN layer
+                    model.add(SimpleRNN(units=100))
+                    model.add(Dropout(0.2))
+                    
+                    # Output layer
+                    model.add(Dense(units=1))
+                    
+                    # Compile model
+                    model.compile(
+                        optimizer=Adam(learning_rate=0.001),
+                        loss='mean_squared_error'
+                    )
+                    
+                    # Train model
+                    history = model.fit(
+                        x_train,
+                        y_train,
+                        epochs=epochs,
+                        batch_size=batch_size,
+                        verbose=0,
+                        validation_data=(x_test, y_test)
+                    )
+                    
+                    # Save model
+                    model.save(model_path)
+                    st.success(f"✅ {model_type} model trained successfully!")
+                    
+                    return model
+                    
+                except Exception as e:
+                    st.error(f"Failed to train {model_type} model: {str(e)}")
+                    return None
+        
+        elif model_type == "ARIMA":
+            with st.spinner(f'📊 Training {model_type} Model...'):
+                # Check for stationarity
+                result = adfuller(data_close.flatten())
+                if result[1] > 0.05:
+                    d = 1  # Data is not stationary, needs differencing
+                else:
+                    d = 0
+                
+                # Use auto_arima to find best parameters
+                model = auto_arima(data_close, seasonal=False, trace=False,
+                                  error_action='ignore', suppress_warnings=True,
+                                  stepwise=True)
+                
+                with open(model_path, 'wb') as f:
+                    pickle.dump(model, f)
+        
+        elif model_type == "Prophet":
+            with st.spinner(f'📊 Training {model_type} Model...'):
+                try:
+                    # Prepare data for Prophet - must be a DataFrame with 'ds' and 'y' columns
+                    prophet_data = data.reset_index()[['Date', 'Close']].copy()
+                    prophet_data.columns = ['ds', 'y']  # Rename columns
+                    
+                    # Convert to proper dtypes
+                    prophet_data['ds'] = pd.to_datetime(prophet_data['ds'])
+                    prophet_data['y'] = pd.to_numeric(prophet_data['y'])
+                    
+                    # Remove any invalid values
+                    prophet_data = prophet_data.dropna()
+                    prophet_data = prophet_data[prophet_data['y'] > 0]
+                    
+                    if len(prophet_data) < 2:
+                        raise ValueError("Not enough valid data points for Prophet")
+                    
+                    # Initialize model
+                    model = Prophet(
+                        daily_seasonality=False,
+                        weekly_seasonality=True,
+                        yearly_seasonality=True,
+                        changepoint_prior_scale=0.05
+                    )
+                    
+                    # Fit model
+                    model.fit(prophet_data)
+                    
+                    # Save model
+                    with open(model_path, 'wb') as f:
+                        pickle.dump(model, f)
+                        
+                    return model
+                    
+                except Exception as e:
+                    st.error(f"Prophet training failed: {str(e)}")
+                    return None
+
+        elif model_type == "LSTM-GRU Hybrid":
+            with st.spinner(f'🧠 Training {model_type} Model...'):
+                try:
+                    # Hybrid model architecture
+                    input_layer = Input(shape=(x_train.shape[1], 1))
+                    
+                    # LSTM branch
+                    lstm_branch = LSTM(100, return_sequences=True)(input_layer)
+                    lstm_branch = Dropout(0.2)(lstm_branch)
+                    lstm_branch = LSTM(100, return_sequences=True)(lstm_branch)
+                    lstm_branch = Dropout(0.2)(lstm_branch)
+                    lstm_branch = LSTM(100)(lstm_branch)
+                    lstm_branch = Dropout(0.2)(lstm_branch)
+                    
+                    # GRU branch
+                    gru_branch = GRU(100, return_sequences=True)(input_layer)
+                    gru_branch = Dropout(0.2)(gru_branch)
+                    gru_branch = GRU(100, return_sequences=True)(gru_branch)
+                    gru_branch = Dropout(0.2)(gru_branch)
+                    gru_branch = GRU(100)(gru_branch)
+                    gru_branch = Dropout(0.2)(gru_branch)
+                    
+                    # Combine branches
+                    combined = concatenate([lstm_branch, gru_branch])
+                    output = Dense(1)(combined)
+                    
+                    model = Model(inputs=input_layer, outputs=output)
+                    model.compile(optimizer=Adam(learning_rate=0.001), loss='mean_squared_error')
+                    
+                    # Add progress bar
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    # Custom training loop with progress updates
+                    for epoch in range(epochs):
+                        model.fit(x_train, y_train, epochs=1, batch_size=batch_size, verbose=0)
+                        progress = (epoch + 1) / epochs
+                        progress_bar.progress(progress)
+                        status_text.text(f"Epoch {epoch + 1}/{epochs} - Training Hybrid Model...")
+                    
+                    model.save(model_path)
+                    progress_bar.empty()
+                    status_text.empty()
+                    
+                    return model
+                    
+                except Exception as e:
+                    st.error(f"Error training hybrid model: {str(e)}")
+                    return None
         
         return model
     
     except Exception as e:
         st.error(f"Error training {model_type} model: {str(e)}")
         return None
+
 
 # Get or train models
 for model_name in selected_models:
@@ -448,7 +625,10 @@ try:
         "Linear Regression": "linear-reg-card",
         "LSTM": "lstm-card",
         "GRU": "gru-card",
-        "SimpleRNN": "rnn-card"
+        "SimpleRNN": "rnn-card",
+        "ARIMA": "arima-card",
+        "Prophet": "prophet-card",
+        "LSTM-GRU Hybrid": "hybrid-card"
     }
 
     for idx, (model_name, model) in enumerate(models.items()):
@@ -459,13 +639,32 @@ try:
                 st.subheader(model_name)
                 
                 try:
-                    # Make predictions
+                    # Make predictions based on model type
                     if model_name == "Linear Regression":
+                        # For Linear Regression we need to use the linear-prepared data
                         predictions = model.predict(x_test_linear)
-                    else:
+                        predictions = predictions.reshape(-1, 1)
+                    elif model_name in ["LSTM", "GRU", "SimpleRNN", "LSTM-GRU Hybrid"]:
+                        # For neural networks we use the sequence data
                         predictions = model.predict(x_test)
+                    elif model_name == "ARIMA":
+                        # ARIMA returns predictions on original scale
+                        predictions = model.predict(n_periods=len(y_test))
+                        predictions = predictions.reshape(-1, 1)
+                        # Scale to match other models' scale
+                        predictions = scaler.transform(predictions)
+                    elif model_name == "Prophet":
+                        # Prophet needs date formatting
+                        test_dates = data.index[train_size:train_size + len(y_test)]
+                        future = pd.DataFrame({'ds': test_dates})
+                        forecast = model.predict(future)
+                        predictions = forecast['yhat'].values.reshape(-1, 1)
+                        predictions = scaler.transform(predictions)
                     
+                    # Ensure predictions are properly shaped
                     predictions = predictions.reshape(-1, 1)
+                    
+                    # Inverse transform to get actual price values
                     predictions = scaler.inverse_transform(predictions)
                     
                     # Calculate metrics
@@ -532,14 +731,6 @@ try:
                         </div>
                         """, unsafe_allow_html=True)
                 
-                except IndexError as e:
-                    if "pop from empty list" in str(e):
-                        st.error(f"⚠️ Prediction failed for {model_name}: Not enough data available")
-                        st.info("Please try refreshing the page and selecting different parameters")
-                    else:
-                        st.error(f"Prediction failed for {model_name}: {str(e)}")
-                    continue
-                
                 except Exception as e:
                     st.error(f"Prediction failed for {model_name}: {str(e)}")
                     continue
@@ -552,7 +743,7 @@ try:
     fig1 = plt.figure(figsize=(14, 7))
     plt.plot(test_dates, y_test_rescaled, color='blue', label='Actual Prices', linewidth=2)
 
-    colors = ['#4b8df8', '#ff6b6b', '#51cf66', '#fcc419']
+    colors = ['#4b8df8', '#ff6b6b', '#51cf66', '#fcc419', '#845ef7', '#20c997', '#f76707']
     for idx, (model_name, perf) in enumerate(model_performance.items()):
         plt.plot(test_dates, perf["Predictions"], color=colors[idx], 
                 label=f'{model_name} Predictions', linestyle='--')
@@ -566,19 +757,62 @@ try:
     fig1.autofmt_xdate()
     st.pyplot(fig1)
 
+    # Model-specific visualizations
+    if "Prophet" in models:
+        with st.expander("🔍 Prophet Model Components", expanded=True):
+            st.write("Prophet decomposes the time series into components:")
+            model = model_performance["Prophet"]["Model"]
+            test_dates = data.index[train_size:train_size + len(y_test)]
+            future = pd.DataFrame({'ds': test_dates})
+            forecast = model.predict(future)
+            
+            fig_trend = model.plot_components(forecast)
+            st.pyplot(fig_trend)
+            
+            st.write("""
+            - **Trend**: Shows the overall direction of the stock price
+            - **Weekly Seasonality**: Patterns that repeat weekly
+            - **Yearly Seasonality**: Patterns that repeat yearly (if enabled)
+            """)
+
+    if "ARIMA" in models:
+        with st.expander("🔍 ARIMA Model Summary", expanded=True):
+            model = model_performance["ARIMA"]["Model"]
+            st.write(f"ARIMA Model Order: {model.order}")
+            st.write(f"ARIMA Model Seasonal Order: {model.seasonal_order if hasattr(model, 'seasonal_order') else 'None'}")
+            st.write("""
+            - **AR (p)**: Autoregressive terms (how many past values influence current value)
+            - **I (d)**: Differencing terms (how many times differenced to make stationary)
+            - **MA (q)**: Moving average terms (how many past errors influence current value)
+            """)
+
+    if "LSTM-GRU Hybrid" in models:
+        with st.expander("🔍 Hybrid Model Architecture", expanded=True):
+            st.write("""
+            The LSTM-GRU Hybrid model combines the strengths of both architectures:
+            
+            - **LSTM Branch**: Better at learning long-term dependencies
+            - **GRU Branch**: Faster training with comparable performance
+            - **Combined**: Takes advantage of both architectures' strengths
+            
+            The model concatenates the outputs of both branches before making final predictions.
+            """)
+            st.image("https://miro.medium.com/max/1400/1*F7e-1nZ6XQ5nO8JhscCDHA.png", 
+                    caption="Hybrid LSTM-GRU Architecture", width=400)
+
     if "Linear Regression" in selected_models:
         # Get the linear regression model
         lr_model = model_performance["Linear Regression"]["Model"]
             
-            # Display the equation
+        # Display the equation
         st.markdown("---")
         st.subheader("📈 Linear Regression Details")
             
-            # Get coefficients (flattened features)
+        # Get coefficients (flattened features)
         coefficients = lr_model.coef_
         intercept = lr_model.intercept_
             
-            # Create equation string
+        # Create equation string
         equation = f"Predicted Price = {intercept:.4f}"
         for i, coef in enumerate(coefficients[0:5]):  # Show first 5 coefficients for brevity
             equation += f" + ({coef:.4f} * X{i+1})"
@@ -601,9 +835,9 @@ try:
         
         # Plot actual vs predicted
         plt.scatter(y_test_rescaled, model_performance["Linear Regression"]["Predictions"], 
-                        alpha=0.5, color='blue', label='Predictions')
+                    alpha=0.5, color='blue', label='Predictions')
             
-            # Plot perfect prediction line
+        # Plot perfect prediction line
         max_val = max(y_test_rescaled.max(), model_performance["Linear Regression"]["Predictions"].max())
         min_val = min(y_test_rescaled.min(), model_performance["Linear Regression"]["Predictions"].min())
         plt.plot([min_val, max_val], [min_val, max_val], 'r--', label='Perfect Prediction')
@@ -616,46 +850,34 @@ try:
         
         st.pyplot(fig_lr)
 
-
-        actual_direction = np.sign(np.diff(y_test_rescaled.flatten()))
-        pred_direction = np.sign(np.diff(model_performance["Linear Regression"]["Predictions"].flatten()))
-        
-        # Create confusion matrix
-        
-        cm = confusion_matrix(actual_direction, pred_direction)
-
-        # Create a smaller figure with adjusted parameters
-        fig_cm = plt.figure(figsize=(3, 2), dpi=100)  # Smaller figure size (3x2 inches)
-
-        # Create heatmap with smaller fonts and tighter layout
-        ax = sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                        xticklabels=['Down', 'Up'],
-                        yticklabels=['Down', 'Up'],
-                        annot_kws={'size': 8},  # Smaller annotation font
-                        cbar=False)  # Remove color bar to save space
-
-        plt.title('Direction Prediction', fontsize=6, pad=2)
-        plt.xlabel('Predicted', fontsize=6)
-        plt.ylabel('Actual', fontsize=6)
-        plt.xticks(fontsize=6)
-        plt.yticks(fontsize=6)
-
-        # Make the plot tighter
-        plt.tight_layout()
-
-        st.pyplot(fig_cm)
-        
         if len(y_test_rescaled) > 1:  # Ensure we have enough data points
-        # Calculate actual and predicted price directions (1=up, 0=flat, -1=down)
-            actual_changes = np.diff(y_test_rescaled.flatten())
-            pred_changes = np.diff(model_performance["Linear Regression"]["Predictions"].flatten())
+            # Calculate actual and predicted price directions (1=up, 0=flat, -1=down)
+            actual_direction = np.sign(np.diff(y_test_rescaled.flatten()))
+            pred_direction = np.sign(np.diff(model_performance["Linear Regression"]["Predictions"].flatten()))
             
-            # Handle flat movements (you might want to count these separately)
-            actual_direction = np.sign(actual_changes)
-            pred_direction = np.sign(pred_changes)
-            
-            # Create confusion matrix (values will be -1, 0, 1)
-            cm = confusion_matrix(actual_direction, pred_direction, labels=[-1, 0, 1])
+            # Create confusion matrix
+            cm = confusion_matrix(actual_direction, pred_direction)
+
+            # Create a smaller figure with adjusted parameters
+            fig_cm = plt.figure(figsize=(3, 2), dpi=100)  # Smaller figure size (3x2 inches)
+
+            # Create heatmap with smaller fonts and tighter layout
+            ax = sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                            xticklabels=['Down', 'Up'],
+                            yticklabels=['Down', 'Up'],
+                            annot_kws={'size': 8},  # Smaller annotation font
+                            cbar=False)  # Remove color bar to save space
+
+            plt.title('Direction Prediction', fontsize=6, pad=2)
+            plt.xlabel('Predicted', fontsize=6)
+            plt.ylabel('Actual', fontsize=6)
+            plt.xticks(fontsize=6)
+            plt.yticks(fontsize=6)
+
+            # Make the plot tighter
+            plt.tight_layout()
+
+            st.pyplot(fig_cm)
             
             # Calculate metrics
             total_predictions = len(actual_direction)
@@ -687,30 +909,46 @@ try:
             st.info(f"Predicting {days_ahead} days into the future (from {today} to {end_date})")
             
             # Prepare future prediction data
-            last_sequence = scaled_data[-sequence_length:]
             future_predictions = {}
             
             for model_name, perf in model_performance.items():
                 model = perf["Model"]
                 future_preds = []
-                current_sequence = last_sequence.copy()
                 
-                for _ in range(days_ahead):
-                    if model_name == "Linear Regression":
-                        pred = model.predict(current_sequence.flatten().reshape(1, -1))[0]
-                    else:
-                        pred = model.predict(current_sequence.reshape(1, sequence_length, 1))[0][0]
-                    
-                    future_preds.append(pred)
-                    
-                    # Update sequence
-                    current_sequence = np.roll(current_sequence, -1)
-                    current_sequence[-1] = pred
-                    
-                # Rescale predictions
-                future_preds = scaler.inverse_transform(np.array(future_preds).reshape(-1, 1))
+                if model_name == "Linear Regression":
+                    current_sequence = scaled_data[-sequence_length:].flatten()
+                    for _ in range(days_ahead):
+                        pred = model.predict(current_sequence.reshape(1, -1))[0]
+                        future_preds.append(pred)
+                        current_sequence = np.roll(current_sequence, -1)
+                        current_sequence[-1] = pred
+                
+                elif model_name in ["LSTM", "GRU", "SimpleRNN", "LSTM-GRU Hybrid"]:
+                    current_sequence = scaled_data[-sequence_length:].reshape(1, sequence_length, 1)
+                    for _ in range(days_ahead):
+                        pred = model.predict(current_sequence)[0][0]
+                        future_preds.append(pred)
+                        current_sequence = np.roll(current_sequence, -1)
+                        current_sequence[0, -1, 0] = pred
+                
+                elif model_name == "ARIMA":
+                    preds = model.predict(n_periods=days_ahead)
+                    future_preds = preds.tolist()
+                
+                elif model_name == "Prophet":
+                    future_dates = pd.date_range(start=today + datetime.timedelta(days=1), end=end_date)
+                    future_df = pd.DataFrame({'ds': future_dates})
+                    forecast = model.predict(future_df)
+                    future_preds = forecast['yhat'].values.tolist()
+                
+                # Rescale predictions (except ARIMA which works on original scale)
+                if model_name != "ARIMA":
+                    future_preds = scaler.inverse_transform(np.array(future_preds).reshape(-1, 1))
+                else:
+                    future_preds = np.array(future_preds).reshape(-1, 1)
+                
                 future_predictions[model_name] = future_preds
-            
+                    
             # Create date range for future predictions
             future_dates = pd.date_range(start=today + datetime.timedelta(days=1), end=end_date)
             
@@ -719,50 +957,251 @@ try:
             for model_name, preds in future_predictions.items():
                 future_df[model_name] = preds
             
-            st.write("Predicted Prices:")
-            st.dataframe(future_df.style.format("{:.2f}"))
-            
-            # Plot future predictions
-            fig_future = plt.figure(figsize=(14, 7))
-            for idx, (model_name, preds) in enumerate(future_predictions.items()):
-                plt.plot(future_dates, preds, color=colors[idx], label=f'{model_name} Forecast', linestyle='--')
-            
-            # Add last actual prices for context
-            last_actual_dates = data.index[-30:]  # Last 30 days of actual data
-            last_actual_prices = data['Close'][-30:]
-            plt.plot(last_actual_dates, last_actual_prices, color='blue', label='Actual Prices', linewidth=2)
-            
-            plt.title(f"{stock_name_display} Future Price Forecast", fontsize=16)
-            plt.xlabel("Date", fontsize=14)
-            plt.ylabel("Price", fontsize=14)
-            plt.legend(fontsize=12)
-            plt.grid(True, linestyle='--', alpha=0.7)
-            plt.xticks(rotation=45)
-            st.pyplot(fig_future)
+            st.write("""
+                <h2 style='color:#2e86c1; text-align:center; font-family:Arial;'>
+                    Predicted Prices
+                </h2>
+            """, unsafe_allow_html=True)
+
+            # Style the dataframe with better formatting
+            styled_df = (future_df.style
+                        .format("{:.2f}")
+                        .set_properties(**{'background-color': '#f8f9f9', 
+                                        'color': '#2c3e50',
+                                        'border': '1px solid #ddd'})
+                        .set_table_styles([{'selector': 'th',
+                                            'props': [('background-color', '#2e86c1'),
+                                                    ('color', 'white'),
+                                                    ('font-weight', 'bold'),
+                                                    ('text-align', 'center')]}]))
+
+            st.dataframe(styled_df)
+
+            # Plot future predictions (same plot style but with better container)
+            with st.container():
+                st.write("""
+                    <h2 style='color:#2e86c1; text-align:center; font-family:Arial; margin-top:30px;'>
+                        {} Future Price Forecast
+                    </h2>
+                """.format(stock_name_display), unsafe_allow_html=True)
+                
+                fig_future = plt.figure(figsize=(14, 7))
+                for idx, (model_name, preds) in enumerate(future_predictions.items()):
+                    plt.plot(future_dates, preds, color=colors[idx], label=f'{model_name} Forecast', linestyle='--')
+                
+                # Add last actual prices for context
+                last_actual_dates = data.index[-30:]  # Last 30 days of actual data
+                last_actual_prices = data['Close'][-30:]
+                plt.plot(last_actual_dates, last_actual_prices, color='blue', label='Actual Prices', linewidth=2)
+                
+                plt.title(f"{stock_name_display} Future Price Forecast", fontsize=16)
+                plt.xlabel("Date", fontsize=14)
+                plt.ylabel("Price", fontsize=14)
+                plt.legend(fontsize=12)
+                plt.grid(True, linestyle='--', alpha=0.7)
+                plt.xticks(rotation=45)
+                
+                # Add some padding around the plot
+                st.pyplot(fig_future, use_container_width=True)
+                
+            st.markdown("---")  # Add a horizontal line for separation
 
         # Model Comparison Chart
         st.markdown("---")
-        st.subheader("📊 Model Performance Comparison")
+        st.subheader("📊 Model Performance Comparison Dashboard")
 
         if len(model_performance) > 1:
-            fig2, ax = plt.subplots(figsize=(12, 6))
-            
-            metrics = ['MSE', 'RMSE', 'MAPE']
-            x = np.arange(len(metrics))
-            width = 0.8 / len(model_performance)
-            
-            for idx, (model_name, perf) in enumerate(model_performance.items()):
-                values = [perf['MSE'], perf['RMSE'], perf['MAPE']]
-                ax.bar(x + idx*width, values, width, label=model_name, color=colors[idx])
-            
-            ax.set_ylabel('Score')
-            ax.set_title('Model Comparison by Different Metrics')
-            ax.set_xticks(x + width*(len(model_performance)-1)/2)
-            ax.set_xticklabels(metrics)
-            ax.legend()
-            
-            st.pyplot(fig2)
+            # Custom styling
+            st.markdown("""
+            <style>
+            .metric-box {
+                border-radius: 10px;
+                padding: 15px;
+                margin: 10px 0;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                transition: transform 0.3s;
+            }
+            .metric-box:hover {
+                transform: translateY(-5px);
+            }
+            </style>
+            """, unsafe_allow_html=True)
 
+            # Create tabs for different views
+            tab1, tab2, tab3 = st.tabs(["📈 Metrics Comparison", "📋 Detailed Scores", "📈 More Deatiled Comparison"])
+            
+            with tab1:
+                # Enhanced bar chart
+                fig = plt.figure(figsize=(14, 8), facecolor='#f8f9fa')
+                ax = fig.add_subplot(111)
+                
+                metrics = ['MSE', 'RMSE', 'MAPE']
+                x = np.arange(len(metrics))
+                width = 0.8 / len(model_performance)
+                
+                # Custom color palette
+                colors = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f']
+                
+                for idx, (model_name, perf) in enumerate(model_performance.items()):
+                    values = [perf['MSE'], perf['RMSE'], perf['MAPE']]
+                    bars = ax.bar(x + idx*width, values, width, 
+                                label=model_name, 
+                                color=colors[idx % len(colors)],
+                                edgecolor='white',
+                                linewidth=1.5)
+                    
+                    # Add value labels
+                    for bar in bars:
+                        height = bar.get_height()
+                        ax.text(bar.get_x() + bar.get_width()/2., height,
+                                f'{height:.2f}',
+                                ha='center', va='bottom',
+                                fontsize=10, fontweight='bold')
+                
+                # Styling
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+                ax.grid(axis='y', linestyle='--', alpha=0.7)
+                
+                ax.set_ylabel('Score', fontsize=12, fontweight='bold')
+                ax.set_title('Model Performance Comparison', 
+                        fontsize=14, fontweight='bold', pad=20)
+                ax.set_xticks(x + width*(len(model_performance)-1)/2)
+                ax.set_xticklabels(metrics, fontsize=12)
+                ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+                
+                st.pyplot(fig)
+                
+                # Add interpretation
+                with st.expander("💡 How to interpret these metrics", expanded=False):
+                    st.markdown("""
+                    - **MSE (Mean Squared Error)**: Lower is better (punishes large errors)
+                    - **RMSE (Root MSE)**: More interpretable in original units
+                    - **MAPE (Mean Absolute % Error)**: Percentage error (under 10% is excellent)
+                    """)
+            
+            with tab2:
+                # Detailed metrics table with conditional formatting
+                st.markdown("### 📊 Performance Metrics Table")
+                
+                # Prepare data
+                metrics_data = []
+                for model_name, perf in model_performance.items():
+                    metrics_data.append({
+                        'Model': model_name,
+                        'MSE': perf['MSE'],
+                        'RMSE': perf['RMSE'],
+                        'MAPE': f"{perf['MAPE']:.2f}%",
+                        'R² Score': perf['R2'],
+                        'Accuracy': f"{perf['Accuracy']:.2f}%"
+                    })
+                
+                df_metrics = pd.DataFrame(metrics_data)
+                
+                # Apply styling
+                def color_negative_red(val):
+                    color = 'red' if '%' in str(val) and float(val[:-1]) > 15 else 'green'
+                    return f'color: {color}; font-weight: bold'
+                
+                st.dataframe(
+                    df_metrics.style
+                        .background_gradient(cmap='Blues', subset=['R² Score'])
+                        .applymap(color_negative_red, subset=['MAPE'])
+                        .format({'MSE': '{:.2f}', 'RMSE': '{:.2f}'})
+                        .set_properties(**{'text-align': 'center'})
+                        .set_table_styles([{
+                            'selector': 'th',
+                            'props': [('background', '#2a3f5f'), ('color', 'white')]
+                        }]),
+                    use_container_width=True
+                )
+            
+            with tab3:
+                # Model performance comparison
+                st.markdown("""
+                <h3 style='color:#2e86c1; text-align:center; font-family:Arial;'>
+                    📊 Model Performance Comparison
+                </h3>
+                """, unsafe_allow_html=True)
+                
+                try:
+                    # Prepare data for visualization
+                    metrics = ['MSE', 'RMSE', 'MAPE', 'R2', 'Accuracy']
+                    models = list(model_performance.keys())
+                    
+                    # Normalize metrics for better visualization (lower is better for MSE/RMSE/MAPE)
+                    normalized_perf = {}
+                    for model in models:
+                        normalized_perf[model] = {
+                            'MSE': 1 - (model_performance[model]['MSE'] / max(p['MSE'] for p in model_performance.values())),
+                            'RMSE': 1 - (model_performance[model]['RMSE'] / max(p['RMSE'] for p in model_performance.values())),
+                            'MAPE': 1 - (model_performance[model]['MAPE'] / max(p['MAPE'] for p in model_performance.values())),
+                            'R2': model_performance[model]['R2'],
+                            'Accuracy': model_performance[model]['Accuracy']/100
+                        }
+                    
+                    # Create figure
+                    fig, ax = plt.subplots(figsize=(12, 6))
+                    
+                    # Plot each metric as a separate bar cluster
+                    bar_width = 0.15
+                    index = np.arange(len(metrics))
+                    
+                    for i, model in enumerate(models):
+                        values = [normalized_perf[model][metric] for metric in metrics]
+                        ax.bar(index + i*bar_width, values, bar_width, 
+                            label=model, alpha=0.8)
+                    
+                    # Customize the plot
+                    ax.set_xlabel('Metrics', fontsize=12)
+                    ax.set_ylabel('Normalized Performance Score', fontsize=12)
+                    ax.set_title('Model Performance Across Different Metrics', fontsize=14, pad=20)
+                    ax.set_xticks(index + bar_width*1.5)
+                    ax.set_xticklabels(metrics)
+                    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+                    ax.grid(axis='y', linestyle='--', alpha=0.7)
+                    
+                    # Add value labels on top of bars
+                    for i, model in enumerate(models):
+                        for j, metric in enumerate(metrics):
+                            value = model_performance[model][metric]
+                            if metric in ['R2', 'Accuracy']:
+                                label = f"{value:.2f}" if metric == 'R2' else f"{value:.1f}%"
+                            else:
+                                label = f"{value:.4f}"
+                            ax.text(j + i*bar_width, normalized_perf[model][metric] + 0.02, 
+                                label, ha='center', va='bottom', fontsize=9)
+                    
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                    
+                    # Add explanation
+                    st.info("""
+                    **How to read this chart:**
+                    - For MSE, RMSE, and MAPE: Higher bars are better (values normalized to 0-1 scale)
+                    - For R² and Accuracy: Actual values shown (higher is better)
+                    - Exact values displayed above each bar
+                    """)
+                    
+                except Exception as e:
+                    st.error(f"Error visualizing model performance: {str(e)}")
+
+        # Add model recommendation
+        best_model = min(model_performance.items(), key=lambda x: x[1]['MSE'])
+        st.success(f"🏆 **Best Performing Model**: {best_model[0]} (MSE: {best_model[1]['MSE']:.2f})")
+
+        # Performance summary cards
+        cols = st.columns(len(model_performance))
+        for idx, (model_name, perf) in enumerate(model_performance.items()):
+            with cols[idx]:
+                st.markdown(f"""
+                <div class="metric-box" style="border-left: 5px solid {colors[idx]};">
+                    <h4>{model_name}</h4>
+                    <p>Accuracy: <strong>{perf['Accuracy']:.2f}%</strong></p>
+                    <p>MAPE: <strong>{perf['MAPE']:.2f}%</strong></p>
+                    <p>R²: <strong>{perf['R2']:.2f}</strong></p>
+                </div>
+                """, unsafe_allow_html=True)
         # Moving Averages Plot
         st.markdown("---")
         st.subheader("📶 Technical Indicators")
@@ -869,118 +1308,150 @@ try:
                 Neural networks (LSTM/GRU) may perform better with more data and tuning.
                 """)
         
-        if future_prediction and len([m for m in models.keys() if m != "GARCH"]) > 0:
-            st.markdown("---")
-            st.subheader("💼 Investment Recommendation")
-                
-            # Calculate average predicted growth across all models
-            avg_growth_percent = []
-            for model_name, preds in future_predictions.items():
-                initial_price = preds[0][0]
-                final_price = preds[-1][0]
-                growth = ((final_price - initial_price) / initial_price) * 100
-                avg_growth_percent.append(growth)
-                
-            if len(avg_growth_percent) > 0:
-                avg_growth = np.mean(avg_growth_percent)
-                max_growth = np.max(avg_growth_percent)
-                min_growth = np.min(avg_growth_percent)
-                    
-                # Determine recommendation
-                if avg_growth > 5:
-                    recommendation = "BUY"
-                    recommendation_color = "green"
-                    reasoning = f"The average predicted growth across models is {avg_growth:.2f}%, suggesting strong potential for appreciation."
-                elif avg_growth > 0:
-                    recommendation = "HOLD"
-                    recommendation_color = "orange"
-                    reasoning = f"The average predicted growth across models is {avg_growth:.2f}%, suggesting modest potential for appreciation."
+        def get_investment_recommendation(predicted_growth, prediction_period_days, volatility):
+            """
+            Returns professional-grade recommendation based on:
+            - predicted_growth: Percentage price change (e.g., 5.2 for 5.2%)
+            - prediction_period_days: Horizon of prediction (e.g., 30 for 30-day forecast)
+            - volatility: Annualized volatility (e.g., 0.25 for 25%)
+            """
+            # Ensure inputs are scalars
+            predicted_growth = float(predicted_growth)
+            prediction_period_days = int(prediction_period_days)
+            volatility = float(volatility)
+
+            # Annualize the predicted growth
+            annualized_growth = ((1 + predicted_growth / 100) ** (365 / prediction_period_days) - 1) * 100
+
+            # Risk-adjusted metric (Simplified Sharpe Ratio)
+            risk_adjusted = annualized_growth / (volatility * 100) if volatility > 0 else 0
+
+            # Professional Thresholds
+            if prediction_period_days <= 30:  # Short-term
+                if predicted_growth > 5 and risk_adjusted > 1.5:
+                    return "STRONG BUY (High Momentum)"
+                elif predicted_growth > 3:
+                    return "BUY (Positive Trend)"
+                elif -2 <= predicted_growth <= 2:
+                    return "HOLD (Neutral)"
+                elif predicted_growth < -3:
+                    return "STRONG SELL (Downtrend)"
                 else:
-                    recommendation = "SELL"
-                    recommendation_color = "red"
-                    reasoning = f"The average predicted growth across models is {avg_growth:.2f}%, suggesting potential for depreciation."
-                    
-                # Display recommendation
-                st.markdown(f"""
-                <div style="border-left: 5px solid {recommendation_color}; padding: 10px; background-color: #f8f9fa; border-radius: 5px;">
-                    <h3 style="color: {recommendation_color};">Recommendation: <strong>{recommendation}</strong></h3>
-                    <p>{reasoning}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                    
-                # Display growth metrics
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Average Predicted Growth", f"{avg_growth:.2f}%")
-                with col2:
-                    st.metric("Maximum Model Prediction", f"{max_growth:.2f}%")
-                with col3:
-                    st.metric("Minimum Model Prediction", f"{min_growth:.2f}%")
-                    
-                # Additional analysis
-                with st.expander("📈 Detailed Analysis", expanded=True):
-                    st.markdown("""
-                    **Considerations for this recommendation:**
-                    - Based on average predicted price change over the forecast period
-                    - Incorporates predictions from all selected models
-                    - More reliable when multiple models agree on direction
-                        
-                    **Important Notes:**
-                    - This is not financial advice
-                    - Consider other factors like company fundamentals, market conditions, and your risk tolerance
-                    - Past performance is not indicative of future results
-                    - Diversify your investments
-                    """)
-                        
-                    # Show model-by-model growth predictions
-                    st.write("Model-specific growth predictions:")
-                    growth_data = []
-                    for model_name, preds in future_predictions.items():
-                        initial = preds[0][0]
-                        final = preds[-1][0]
-                        growth = ((final - initial) / initial) * 100
-                        growth_data.append([model_name, initial, final, growth])
-                        
-                    growth_df = pd.DataFrame(growth_data, columns=["Model", "Initial Price", "Final Price", "Growth %"])
-                    st.dataframe(growth_df.style.format({
-                        "Initial Price": "{:.2f}",
-                        "Final Price": "{:.2f}",
-                        "Growth %": "{:.2f}%"
-                    }))
+                    return "SELL (Weakness)"
+
+            elif prediction_period_days <= 365:  # Medium-term
+                if annualized_growth > 20 and risk_adjusted > 1.2:
+                    return "STRONG BUY (Undervalued)"
+                elif annualized_growth > 12:
+                    return "BUY (Growth Potential)"
+                elif 5 <= annualized_growth <= 12:
+                    return "HOLD (Market Returns)"
+                else:
+                    return "SELL (Underperforming)"
+
+            else:  # Long-term
+                if annualized_growth > 15:
+                    return "STRONG BUY (Compounding Opportunity)"
+                elif annualized_growth > 10:
+                    return "BUY (Long-Term Growth)"
+                elif 5 <= annualized_growth <= 10:
+                    return "HOLD (Market Matching)"
+                else:
+                    return "SELL (Reallocate Capital)"
+
+        def calculate_volatility(data, window=30):
+            """Calculate annualized volatility from price data"""
+            if len(data) < 2:
+                return 0.25  # Default reasonable volatility if not enough data
             
-            data1 = {
-                "Recommendation": ["BUY", "HOLD", "SELL"],
-                "Avg Growth (%)": ["+6.5% or more", "+2.1% to +6.4%", "-4.3% or less"],
-                "Reasoning": [
-                    "Strong potential for appreciation",
-                    "Modest growth expected",
-                    "Predicted loss over forecast period"
-                ]
-            }
+            try:
+                returns = np.log(data['Close'] / data['Close'].shift(1))
+                rolling_std = returns.rolling(window=min(window, len(returns))).std()
+                annualized_vol = rolling_std.iloc[-1] * np.sqrt(252)  # Last available value
+                return float(annualized_vol) if not np.isnan(annualized_vol) else 0.25
+            except Exception:
+                return 0.25  # Fallback value
 
-            df = pd.DataFrame(data1)
+        # Then modify the recommendation logic:
 
-            st.markdown("""
-            ### 💼 Interpretation Guide (Standard Thresholds)
+        if future_prediction and len(future_predictions) > 0:
+            st.markdown("---")
+            st.subheader("💼 Professional Investment Recommendation")
+            
+            try:
+                # Calculate volatility - ensure we get a single float value
+                volatility = calculate_volatility(data)
+                
+                # Get predictions from all models
+                recommendations = []
+                for model_name, preds in future_predictions.items():
+                    if len(preds) > 0:  # Check if predictions exist
+                        initial_price = float(preds[0][0])  # Convert to float
+                        final_price = float(preds[-1][0])   # Convert to float
+                        growth = ((final_price - initial_price) / initial_price) * 100
+                        days_ahead = (end_date - today).days
                         
-            **These are general recommendation thresholds, not your actual predictions:**  
-            *Your specific recommendation appears above based on the model's forecast.*
-            """)
-
-            st.dataframe(
-                df.style.set_properties(**{
-                    'text-align': 'center',
-                    'font-size': '16px',
-                    'background-color': '#f8f9fa'  # Light gray background
-                }).hide(axis="index"),
-                use_container_width=True
-            )
-
-            # Add explanatory note
-            st.caption("""
-            ℹ️ Note: These thresholds are illustrative. Actual investment decisions should consider 
-            additional factors like market conditions, company fundamentals, and risk tolerance.
-            """)
+                        # Ensure we're passing numeric values
+                        if not np.isnan(growth) and days_ahead > 0:
+                            rec = get_investment_recommendation(
+                                float(growth), 
+                                int(days_ahead), 
+                                float(volatility)
+                            )
+                            recommendations.append((model_name, growth, rec))
+                
+                # Display recommendations only if we have valid data
+                if recommendations:
+                    # Display professional analysis
+                    col1, col2 = st.columns([1, 2])
+                    
+                    with col1:
+                        st.metric("Market Volatility", f"{volatility*100:.1f}%", 
+                                help="Annualized volatility (30-day historical)")
+                        
+                    with col2:
+                        st.metric("Risk-Free Rate", "4.5-5.5%", 
+                                help="Current 10-year Treasury yield range")
+                    
+                    # Consensus recommendation
+                    st.markdown("#### 📊 Consensus Analysis")
+                    
+                    # Create DataFrame for display
+                    rec_df = pd.DataFrame(recommendations, 
+                                        columns=["Model", "Predicted Growth", "Recommendation"])
+                    
+                    # Color coding
+                    def color_recommendation(val):
+                        if isinstance(val, str):  # Only apply to strings
+                            color = "green" if "BUY" in val else (
+                                "red" if "SELL" in val else "orange")
+                            return f"color: {color}; font-weight: bold"
+                        return ""
+                    
+                    st.dataframe(
+                        rec_df.style.format({"Predicted Growth": "{:.2f}%"})
+                                .applymap(color_recommendation, subset=["Recommendation"])
+                    )
+                    
+                    # Add professional disclaimer
+                    st.markdown("""
+                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 10px; margin-top: 20px;">
+                        <h4>📌 Professional Guidelines</h4>
+                        <ul>
+                            <li><b>STRONG BUY</b>: >5% short-term or >20% annualized growth with low volatility</li>
+                            <li><b>BUY</b>: >3% short-term or >12% annualized growth</li>
+                            <li><b>HOLD</b>: Neutral outlook (-2% to +2% short-term)</li>
+                            <li><b>SELL</b>: <-3% short-term or <5% annualized growth</li>
+                        </ul>
+                        <p style="font-size: 0.9em; color: #666;">
+                            Note: Recommendations incorporate volatility-adjusted metrics. 
+                            Always verify with fundamental analysis.
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"Could not generate professional recommendation: {str(e)}")
+                
         else:
             st.warning("Could not calculate investment recommendation. Please select the commence date for Prediction.")
             
