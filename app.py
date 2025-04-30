@@ -15,7 +15,7 @@ import streamlit.components.v1 as components
 from statsmodels.tsa.arima.model import ARIMA
 from prophet import Prophet
 from statsmodels.tsa.stattools import adfuller
-# from pmdarima import auto_arima
+from pmdarima import auto_arima
 import datetime
 import seaborn as sns
 from PIL import Image
