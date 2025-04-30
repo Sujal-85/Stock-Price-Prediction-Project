@@ -10,4 +10,5 @@ matplotlib
 streamlit
 seaborn
 Pillow
-
+scikit-learn
+seaborn
