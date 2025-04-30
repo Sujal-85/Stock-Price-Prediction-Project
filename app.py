@@ -9,13 +9,13 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import confusion_matrix
-from statsmodels.tsa.arima.model import ARIMA
-from prophet import Prophet
-from statsmodels.tsa.stattools import adfuller
-from pmdarima import auto_arima
 import matplotlib.pyplot as plt
 import streamlit as st
 import streamlit.components.v1 as components
+from statsmodels.tsa.arima.model import ARIMA
+from prophet import Prophet
+from statsmodels.tsa.stattools import adfuller
+# from pmdarima import auto_arima
 import datetime
 import seaborn as sns
 from PIL import Image
