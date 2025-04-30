@@ -12,7 +12,7 @@ tensorflow==2.12.0         # Last stable release before tf 2.13 changes
 
 # Time Series Specific
 statsmodels==0.13.5        # Latest stable
-        # Last stable release
+pmdarima==2.0.3    
 arch==6.2.0                # Volatility modeling
 prophet==1.1.3             # With proper dependency resolution
 
