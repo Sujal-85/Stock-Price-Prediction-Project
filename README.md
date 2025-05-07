@@ -7,6 +7,14 @@ An **AI-powered stock forecasting tool** that leverages ** Machine Learning (ML)
               Use Email: admin@gmail.com
                   Password: admin@8550
 
+**GitHub Link:** https://github.com/Sujal-85/Stock-Price-Prediction-Project
+
+**Kaggle Link:** https://www.kaggle.com/code/sujalkhedekar/stock-prediction-system
+
+**Google Colab Link:** https://acesse.one/rWAPk
+
+
+
 ✨ **Features**
 
 **Multi-Model Forecasting:** Uses LSTM, ARIMA, GRU, Prophet, Linear Regression, and LSTM - GRU Hybrid
