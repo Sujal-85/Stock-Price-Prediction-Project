@@ -2,6 +2,11 @@
 
 An **AI-powered stock forecasting tool** that leverages ** Machine Learning (ML) and Deep Learning (DL)** to predict future stock prices using historical data, technical indicators, and sentiment analysis. Built for traders, investors, and financial analysts to make data-driven decisions.
 
+**Live Demo: ** https://frontend-of-stock-prediction-system.vercel.app
+
+              Use **Email:** admin@gmail.com
+                  **Password:** admin@8550
+
 ✨ **Features**
 
 **Multi-Model Forecasting:** Uses LSTM, ARIMA, GRU, Prophet, Linear Regression, and LSTM - GRU Hybrid
