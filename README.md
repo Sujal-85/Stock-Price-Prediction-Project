@@ -15,6 +15,7 @@ An **AI-powered stock forecasting tool** that leverages ** Machine Learning (ML)
 
 
 
+
 ✨ **Features**
 
 **Multi-Model Forecasting:** Uses LSTM, ARIMA, GRU, Prophet, Linear Regression, and LSTM - GRU Hybrid
